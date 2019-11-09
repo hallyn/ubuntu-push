@@ -207,7 +207,36 @@ func redialDelay(sess *clientSession) time.Duration {
 	}
 }
 
+type sessionRv struct {
+	sess *clientSession
+	err  error
+}
+
 func NewSession(serverAddrSpec string, conf ClientSessionConfig,
+	deviceId string, seenStateFactory func() (seenstate.SeenState, error),
+	log logger.Logger) (*clientSession, error) {
+
+	var sess *clientSession
+	var err error
+	c := make(chan sessionRv)
+
+	go func() {
+		session, err := doNewSession(serverAddrSpec, conf, deviceId, seenStateFactory, log)
+		c <- sessionRv{session, err}
+	}()
+
+	select {
+	case sRv := <-c:
+		err = sRv.err
+		sess = sRv.sess
+	case <-time.After(50 * time.Second):
+		err = fmt.Errorf("NewSession timed out")
+	}
+
+	return sess, err
+}
+
+func doNewSession(serverAddrSpec string, conf ClientSessionConfig,
 	deviceId string, seenStateFactory func() (seenstate.SeenState, error),
 	log logger.Logger) (*clientSession, error) {
 	seenState, err := seenStateFactory()
